@@ -69,6 +69,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutViewModel.onCycleScreens = { [weak self] in
             self?.cycleScreens()
         }
+
+        layoutViewModel.onRecenter = { [weak self] in
+            self?.trackingService.recenter()
+            // Resetar também o controle manual por teclado
+            self?.currentYaw = 0
+            self?.currentPitch = 0
+        }
         
         layoutViewModel.onScreenCountChanged = { [weak self] count in
             guard let self = self else { return }
@@ -157,9 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: HeadTrackingServiceDelegate {
     func headTrackingService(_ service: HeadTrackingService, didUpdate pose: HeadPose) {
         // Se o pose for identidade (fallback), permitimos o override manual ou apenas ignoramos
-        if pose.orientation.real == 1.0 && pose.orientation.imag == .zero {
-            return // Usa o orientation manual desenvolvido via teclado
-        }
+        // No entanto, se o XrealHIDTrackingAdapter estiver ativo, ele enviará poses reais.
         renderers.forEach { $0.updateCameraOrientation(pose.orientation) }
     }
 }

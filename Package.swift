@@ -21,7 +21,8 @@ let package = Package(
             ]),
         .target(
             name: "PrismaXRTracking",
-            path: "Sources/PrismaXRTracking"),
+            path: "Sources/PrismaXRTracking",
+            linkerSettings: [.linkedFramework("IOKit")]),
         .target(
             name: "PrismaXRVirtualDisplay",
             path: "Sources/PrismaXRVirtualDisplay"),
@@ -41,6 +42,7 @@ let package = Package(
                 "PrismaXRLayout",
                 "PrismaXRVirtualDisplay"
             ],
-            path: "Sources/PrismaXRApp")
+            path: "Sources/PrismaXRApp",
+            linkerSettings: [.linkedFramework("IOKit")])
     ]
 )

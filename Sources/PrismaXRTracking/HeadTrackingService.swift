@@ -27,12 +27,18 @@ public final class HeadTrackingService {
         if let adapter {
             self.adapter = adapter
         } else {
-            if #available(macOS 12.3, *) {
+            if let xreal = try? XrealHIDTrackingAdapter() {
+                self.adapter = xreal
+            } else if #available(macOS 12.3, *) {
                 self.adapter = NRSDKTrackingAdapter()
             } else {
                 self.adapter = FallbackTrackingAdapter()
             }
         }
+    }
+
+    public func recenter() {
+        (adapter as? XrealHIDTrackingAdapter)?.recenter()
     }
 
     public func start() {

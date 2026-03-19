@@ -38,6 +38,20 @@ struct ControlPanelView: View {
                         }
                     }
                 }
+
+                Divider()
+
+                Button {
+                    viewModel.triggerRecenter()
+                } label: {
+                    HStack {
+                        Image(systemName: "scope")
+                        Text("Centralizar Telas")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
             }
             .padding()
         }

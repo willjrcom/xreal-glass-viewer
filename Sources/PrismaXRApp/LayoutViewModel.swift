@@ -19,10 +19,15 @@ final class LayoutViewModel: ObservableObject {
     var onDisplaySelect: (Int, SCDisplay) -> Void = { _, _ in }
     var onPanorama: (() -> Void)?
     var onCycleScreens: (() -> Void)?
+    var onRecenter: (() -> Void)?
     var onScreenCountChanged: ((Int) -> Void)?
 
     init(initialDesks: [DeskLayoutConfiguration] = Renderer.defaultLayouts()) {
         self.desks = initialDesks
+    }
+    
+    public func triggerRecenter() {
+        onRecenter?()
     }
     
     private func applyScreenCount() {
