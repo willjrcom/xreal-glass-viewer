@@ -78,36 +78,30 @@ public final class XrealHIDTrackingAdapter: TrackingAdapter {
     
     private func handleReport(reportID: UInt32, report: UnsafePointer<UInt8>, length: Int) {
         let reportData = Data(bytes: report, count: length)
-        func readFloat32(offset: Int) -> Float {
+        func readInt32LE(offset: Int) -> Int32 {
             guard offset + 4 <= length else { return 0 }
-            return reportData.subdata(in: offset..<offset+4).withUnsafeBytes { $0.load(as: Float.self) }
-        }
-        func readInt16BE(offset: Int) -> Int16 {
-            guard offset + 2 <= length else { return 0 }
-            return Int16(bitPattern: UInt16(report[offset]) << 8 | UInt16(report[offset+1]))
+            return reportData.subdata(in: offset..<offset+4).withUnsafeBytes { $0.load(as: Int32.self) }
         }
         
         if length == 122 && report[0] == 0xEC {
-            // Air 2 / Ultra - Usar Orientação Absoluta (Euler Angles em Graus)
-            // Identificamos nos logs (32, 36, 40)
-            let pitchDeg = readFloat32(offset: 32)
-            let yawDeg   = readFloat32(offset: 36)
-            let rollDeg  = readFloat32(offset: 40)
+            // Air 2 / Ultra - Absolute Orientation (Fixed-Point Quaternion)
+            // Os offsets 40, 44, 48, 52 contêm W, X, Y, Z em Q30 fixed-point
+            let scale = 1.0 / Float(1 << 30)
             
-            // Converter Graus -> Radianos
-            let p = pitchDeg * .pi / 180.0
-            let y = -yawDeg   * .pi / 180.0 
-            let r = rollDeg  * .pi / 180.0
+            let qw = Float(readInt32LE(offset: 40)) * scale
+            let qx = Float(readInt32LE(offset: 44)) * scale
+            let qy = Float(readInt32LE(offset: 48)) * scale
+            let qz = Float(readInt32LE(offset: 52)) * scale
             
-            // Criar Quaternions para cada eixo
-            let qPitch = simd_quatf(angle: p, axis: SIMD3<Float>(1, 0, 0))
-            let qYaw   = simd_quatf(angle: y, axis: SIMD3<Float>(0, 1, 0))
-            let qRoll  = simd_quatf(angle: 0, axis: SIMD3<Float>(0, 0, 1)) // Travar Roll
+            // Criar o Quatérnio de Rotação (XREAL coord: X=Pitch, Y=Yaw, Z=Roll)
+            // Mapeamos para o sistema do Renderer (Invertendo se necessário)
+            let rawQuat = simd_quatf(ix: qx, iy: qy, iz: qz, r: qw)
             
-            currentOrientation = qYaw * qPitch * qRoll
+            // Re-orientação para o mundo real (Yaw 0 corrigido)
+            currentOrientation = rawQuat
             
-            if calibrationSamples % 30 == 0 {
-                print("📐 POSE [\(calibrationSamples)]: P:\(String(format: "%.1f", pitchDeg)) Y:\(String(format: "%.1f", yawDeg)) R:\(String(format: "%.1f", rollDeg))")
+            if calibrationSamples % 100 == 0 {
+                print("💎 SPATIAL OK: W:\(String(format: "%.2f", qw)) X:\(String(format: "%.2f", qx)) Y:\(String(format: "%.2f", qy)) Z:\(String(format: "%.2f", qz))")
                 fflush(stdout)
             }
             calibrationSamples += 1
@@ -119,30 +113,28 @@ public final class XrealHIDTrackingAdapter: TrackingAdapter {
                 self.poseUpdated?(finalPose)
             }
         } else if length == 64 {
-            // Fallback para integração se for o Air 1 (64 bytes)
+            // Fallback para Air 1 (Legacy Integration)
+            func readInt16BE(offset: Int) -> Int16 {
+                return Int16(bitPattern: UInt16(report[offset]) << 8 | UInt16(report[offset+1]))
+            }
             let gyroScale: Float = 1.0 / 16.4 / 180.0 * .pi
-            let gx_f = Float(readInt16BE(offset: 13)) * gyroScale
-            let gy_f = Float(readInt16BE(offset: 15)) * gyroScale
-            let gz_f = Float(readInt16BE(offset: 17)) * gyroScale
+            let gx = Float(readInt16BE(offset: 13)) * gyroScale
+            let gy = Float(readInt16BE(offset: 15)) * gyroScale
             
             let now = mach_absolute_time()
             if lastTimestamp == 0 { lastTimestamp = now; return }
             let dt = Float(now - lastTimestamp) / 1_000_000_000.0
             lastTimestamp = now
             
-            let gyroVec = SIMD3<Float>(gx_f, gy_f, 0)
-            let gyroLen = simd_length(gyroVec)
-            if gyroLen > 0.0001 {
-                let deltaRotation = simd_quatf(angle: gyroLen * dt, axis: normalize(gyroVec))
+            let deltaRotation = simd_quatf(angle: sqrt(gx*gx + gy*gy) * dt, 
+                                           axis: normalize(SIMD3<Float>(gx, gy, 0)))
+            if !deltaRotation.angle.isNaN {
                 currentOrientation = currentOrientation * deltaRotation
             }
             
             let finalPose = HeadPose(timestamp: Date().timeIntervalSince1970,
                                      orientation: offsetOrientation * currentOrientation)
-            
-            DispatchQueue.main.async {
-                self.poseUpdated?(finalPose)
-            }
+            DispatchQueue.main.async { self.poseUpdated?(finalPose) }
         }
     }
 }
